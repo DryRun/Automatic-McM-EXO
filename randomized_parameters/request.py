@@ -169,10 +169,8 @@ grid_points = {points}
 for grid_point in grid_points:
 	basePythiaParameters = cms.PSet(
 		{settings_blocks},
-		processParameters = cms.vstring(grid_point['processParameters']),
 		parameterSets = cms.vstring(
 			{settings_strings},
-			'processParameters',
 		),
 	)
 
