@@ -4,7 +4,7 @@ A "randomized parameter" request generates a whole signal grid in one dataset. A
 
 For more documentation, see the [PDMV tutorial](https://monte-carlo-production-tools.gitbook.io/project/mccontact/signal-mass-points-in-single-ticket) or this [example fragment](https://cms-pdmv.cern.ch/mcm/public/restapi/requests/get_fragment/EXO-RunIIFall17GS-04839) from the Higgs to XX to 4b analysis ([EXO-RunIIFall17GS-04839](https://cms-pdmv.cern.ch/mcm/requests?prepid=EXO-RunIIFall17GS-04839&page=0)). 
 
-This package provides a script that makes a randomized parameter request starting from the standard EXO spreadsheet. `makeRPRequest.py` makes the randomized parameter "superfragment." It will also generate the `uploadRPRequest.py` command used to upload the request to MCM. From there, follow the usual procedure for a GS request (i.e. run the local validation with `testRequests.py` etc.).
+This package provides a script that makes a randomized parameter request starting from the standard EXO spreadsheet. `makeRPRequest.py` makes the randomized parameter "superfragment." It will also generate the `uploadRPRequest.py` command used to upload the request to MCM. From there, follow the usual procedure for a *GS* request (i.e. run the local validation with `testRequests.py` etc.). Note: always use GS, not wmLHEGS! The randomized parameter code takes care of the LHE step by itself.
 
 ### Example use
 ```
@@ -32,7 +32,8 @@ ZH_HToSSTobbbb_ZToLL_MH-125_MS-15_ctauS-10_TuneCP5_13TeV-powheg-pythia8,50000,/a
 
 # Make the superfragment
 # Note 1: the -n argument sets the dataset name!
-# Note 2: add -f to overwrite a previous attempt.
+# Note 2: -c sets the campaign. This needs to be GS, not wmLHEGS; the randomized parameter code takes care of the LHE step. 
+# Note 3: add -f to overwrite a previous attempt.
 lxplus770:~/MCI/submissions/testRP --> makeRPRequest.py -s spreadsheet.csv -n ZH_HToSSTobbbb_ZToLL_MH-125_TuneCP5_13TeV_powheg_pythia8 -c RunIIFall17GS
 mkdir: created directory 'ZH_HToSSTobbbb_ZToLL_MH-125_TuneCP5_13TeV_powheg_pythia8_RunIIFall17GS'
 
