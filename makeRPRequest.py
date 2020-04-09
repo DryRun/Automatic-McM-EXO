@@ -36,11 +36,12 @@ if __name__ == "__main__":
   os.system("mkdir -pv {}".format(output_dir))
   rp_request = RandomizedParameterRequest(dataset_name=args.name, campaign=args.campaign, output_dir=output_dir, overwrite=args.overwrite, use_gridpack=use_gridpack)
   min_nevents = 1.e20
-  with open(args.spreadsheet, 'rb') as spreadsheet:
-    fields = getFields(spreadsheet) # Dict {column name : column index}
+  with open(args.spreadsheet, 'rb') as spreadsheet1:
+    fields = getFields(spreadsheet1) # Dict {column name : column index}
 
+  with open(args.spreadsheet, 'rb') as spreadsheet2:
     params = {}
-    csv_reader = csv.reader(spreadsheet)
+    csv_reader = csv.reader(spreadsheet2)
     for i, row in enumerate(csv_reader):
       if i == 0:
         continue
