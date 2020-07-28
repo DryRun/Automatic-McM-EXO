@@ -37,6 +37,11 @@ re_totalsize2 = re.compile("total (\d*)K")
 re_jobTime = re.compile('<Metric Name="(?:TotalJobCPU|TotalJobTime)" Value="(\d*\.\d*)"/>')
 re_avgEventTime = re.compile('<Metric Name="(?:AvgEventCPU|AvgEventTime)" Value="(\d*\.\d*)"/>')
 
+re_xml_totalevents = re.compile("<TotalEvents>(\d*)</TotalEvents>")
+re_xml_totalsize = re.compile('<Metric Name="Timing-tstoragefile-write-totalMegabytes" Value="(\d*\.\d*)"/>')
+re_xml_jobTime = re.compile('<Metric Name="(?:TotalJobCPU|TotalJobTime)" Value="(\d*\.\d*)"/>')
+re_xml_avgEventTime = re.compile('<Metric Name="(?:AvgEventCPU|AvgEventTime)" Value="(\d*\.\d*)"/>')
+
 def getArguments():
     parser = argparse.ArgumentParser(description='Test McM requests.')
 
@@ -48,6 +53,7 @@ def getArguments():
     parser.add_argument('-n', dest='nEvents', help='Number of events to test.')
     parser.add_argument('-d', '--dev', action='store_true', help='Use dev instance of MCM')
     parser.add_argument('-D', '--test_dir', type=str, default='test', help='Test directory')
+    parser.add_argument("--keep_root", action="store_true", help="Keep ROOT files from tests")
 
     args_ = parser.parse_args()
     return args_
@@ -163,12 +169,15 @@ def submitToBatch(PrepId):
 #    jobID = match.group(1)
 #    return jobID
 
-def submitManyToCondor(reqs, retry=0):
+def submitManyToCondor(reqs, retry=0, keep_root=False):
     scripts = ["{}.sh".format(req.getPrepId()) for req in reqs]
     with open("test_many.sh", "w") as f:
         f.write("#!/bin/bash\n")
         f.write("scripts=(" + " ".join(scripts) + ")\n")
         f.write("source ${scripts[$1]}\n")
+        if not keep_root:
+            f.write("mkdir $_CONDOR_SCRATCH_DIR/hide\n")
+            f.write("mv $_CONDOR_SCRATCH_DIR/*root $_CONDOR_SCRATCH_DIR/hide\n")
 
     batch_command = "csub test_many.sh -t workday --queue_n {} -F {}".format(len(scripts), ",".join(scripts))
     # For RunII* jobs, use SLC6
@@ -191,7 +200,7 @@ def submitManyToCondor(reqs, retry=0):
     return prepid_jobid_map
 
 
-def createTest(compactPrepIDList, nEvents, use_bsub=False, use_dev=False, test_dir="test"):
+def createTest(compactPrepIDList, nEvents, use_bsub=False, use_dev=False, test_dir="test", keep_root=False):
     if os.path.isdir(test_dir):
         raise ValueError("Test directory {} already exists.".format(test_dir))
 
@@ -217,7 +226,7 @@ def createTest(compactPrepIDList, nEvents, use_bsub=False, use_dev=False, test_d
             jobID = submitToBatch(req.getPrepId())
             prepid_jobid_map[req.getPrepId()] = jobID
     else:
-        prepid_jobid_map = submitManyToCondor(requests)
+        prepid_jobid_map = submitManyToCondor(requests, keep_root=keep_root)
         if prepid_jobid_map == -1:
             print "[createTest] ERROR : Condor submission failed!"
             sys.exit(1)
@@ -455,7 +464,7 @@ def writeResultsCSV(csvfile, requests, skip=[]):
                             sizePerEvent, matchEff, filterEff])
     return
 
-def getTimeSizeFromFile(stdoutFile, iswmLHE, use_bsub=False, stderrFile=None):
+def getTimeSizeFromFile(stdoutFile, iswmLHE, use_bsub=False, stderrFile=None, xmlFile=None):
     totalSize = 0
     jobTimeCandidates = []
     avgEventTimeCandidates = []
@@ -521,6 +530,28 @@ def getTimeSizeFromFile(stdoutFile, iswmLHE, use_bsub=False, stderrFile=None):
             if match_avgEventTime is not None:
                 avgEventTimeCandidates.append(float(match_avgEventTime.group(1)))
 
+    if xmlFile:
+        with open(xmlFile) as xmlContents:
+            for line in xmlContents:
+                match_totalevents = re_xml_totalevents.search(line)
+                if match_totalevents is not None:
+                    totalEvents = float(match_totalevents.group(1))
+                    continue
+
+                match_jobTime = re_xml_jobTime.search(line)
+                if match_jobTime is not None:
+                    jobTimeCandidates.append(float(match_jobTime.group(1)))
+                    continue
+
+                match_totalsize = re_xml_totalsize.search(line)
+                if match_totalsize is not None:
+                    totalSize = float(match_totalsize.group(1))
+                    continue
+
+                match_avgEventTime = re_xml_avgEventTime.search(line)
+                if match_avgEventTime is not None:
+                    avgEventTimeCandidates.append(float(match_avgEventTime.group(1)))
+
     # Fix for randomized parameters requests: matching efficiency is not computed, because requests are GS not wmLHEGS!
     if totalEvents == -1:
         raise ValueError("Didn't find total number of events from log file! I.e. <TotalEvents>###</TotalEvents>")
@@ -584,6 +615,15 @@ def getTimeSize(requests, use_bsub=False, force_update=False):
                     # Multiple attempts: use latest
                     stderrCandidates.sort(key=lambda x: os.path.getmtime(x), reverse=True)
                 stderrFile = stderrCandidates[0]
+
+                xmlCandidates = glob.glob("{}/*{}*xml".format(os.getcwd(), req.getPrepId()))
+                if len(xmlCandidates) == 0:
+                    print "[getTimeSize] WARNING : Didn't find output xml file for prepid {}".format(req.getPrepId())
+                elif len(xmlCandidates) >= 1:
+                    # Multiple attempts: use latest
+                    xmlCandidates.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                xmlFile = xmlCandidates[0]
+
             if os.path.exists(stdoutFile):
                 number_complete += 1
                 iswmLHE = False
@@ -591,7 +631,13 @@ def getTimeSize(requests, use_bsub=False, force_update=False):
                 if searched is not None:
                     iswmLHE = True
                 try:
-                    timePerEvent, sizePerEvent, matchEff, matchEffErr, filterEff, filterEffErr = getTimeSizeFromFile(stdoutFile, iswmLHE, use_bsub=use_bsub, stderrFile=stderrFile)
+                    timePerEvent, sizePerEvent, matchEff, \
+                    matchEffErr, filterEff, filterEffErr = getTimeSizeFromFile(
+                        stdoutFile, 
+                        iswmLHE, 
+                        use_bsub=use_bsub, 
+                        stderrFile=stderrFile,
+                        xmlFile=xmlFile)
                 except ValueError as error:
                     print error
                     timePerEvent = -1
@@ -658,7 +704,7 @@ def main():
         print "Error: Cannot use both -i and -f."
         sys.exit(1)
     elif args.ids:
-        createTest(args.ids, args.nEvents, use_bsub=args.bsub, use_dev=args.dev, test_dir=args.test_dir)
+        createTest(args.ids, args.nEvents, use_bsub=args.bsub, use_dev=args.dev, test_dir=args.test_dir, keep_root=args.keep_root)
     elif args.extract:
         extractTest(args.test_dir, use_bsub=args.bsub)
     else:
